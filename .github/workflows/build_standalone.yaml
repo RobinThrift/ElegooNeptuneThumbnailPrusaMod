@@ -1,0 +1,33 @@
+name: Build Standalone Binaries
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [macos-latest, macos-13]
+    runs-on: ${{ matrix.os }}
+    steps:
+    - name: Install just
+      uses: kodeshack/action-install-gh-release@v1
+      with:
+        owner: casey
+        repo: just
+        version: '1.34.0'
+        test: just --version
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12' 
+    - uses: actions/checkout@v4
+    - name: Build Binary
+      run: |
+        just package
+    - uses: actions/upload-artifact@v4
+      with:
+        name: gen_thumbnails_${{ runner.os }}_${{ runner.arch }}
+        path: build/gen_thumbnail
+        retention-days: 90
+        overwrite: true
