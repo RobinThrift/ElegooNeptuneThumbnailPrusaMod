@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env /Users/robin/Projects/ElegooNeptuneThumbnailPrusaMod/.venv/bin/python3
 
 # Copyright (c) 2023 fifonik
 # Copyright (c) 2023 TheJMaster28
@@ -20,8 +20,7 @@ from ctypes import *
 from io import BytesIO
 from os import path, replace
 
-from PyQt6.QtCore import Qt, QRect, QRectF, QByteArray, QBuffer, QIODeviceBase
-from PyQt6.QtGui import QColor, QFont, QGuiApplication, QImage, QPainter
+from PIL import Image, ImageOps, ImageDraw,ImageFont
 
 import lib_col_pic
 
@@ -49,16 +48,6 @@ def extract_value(line, key) -> str:
         return line[pv:p2].strip()
     else:
         return line[pv:].strip()
-
-app = QGuiApplication(sys.argv)
-
-
-def draw_text(painter: QPainter, rect: QRect, text: str, flags: int, color: QColor = QColor(Qt.GlobalColor.white), bgcolor: QColor = None):
-    if bgcolor is not None:
-        boundingRect = painter.boundingRect(rect, flags, text)
-        painter.fillRect(QRectF(boundingRect), bgcolor)
-    painter.setPen(color)
-    painter.drawText(rect, flags, text)
 
 
 class Neptune_Thumbnail:
@@ -190,24 +179,24 @@ class Neptune_Thumbnail:
                 s = s.replace(' :', ' ').strip(': ')
                 if ':' not in s:
                     s = '00:' + s
-                self.print_duration_formatted = '\u29D6' + s
+                self.print_duration_formatted = s
             else:
-                self.print_duration_formatted = '\u29D6' + self.print_duration
+                self.print_duration_formatted = self.print_duration
 
 
         if self.filament_used_weight is not None:
             # todo@ find better char and use \uXXXX
-            self.filament_used_weight_formatted = '🡇' + myround(self.filament_used_weight) + 'g'
+            self.filament_used_weight_formatted = myround(self.filament_used_weight) + 'g'
 
         if self.filament_used_length is not None:
             # todo@ find better char and use \uXXXX
-            self.filament_used_length_formatted = '🠦' + myround(self.filament_used_length, 1000) + 'm'
+            self.filament_used_length_formatted = myround(self.filament_used_length, 1000) + 'm'
 
         if self.max_height > 0:
-            self.max_height_formatted = '\u2912' + '{:.1f}'.format(round(self.max_height, 1)) + 'mm'
+            self.max_height_formatted = '{:.1f}'.format(round(self.max_height, 1)) + 'mm'
 
 
-    def image_decode(self, text) -> QImage:
+    def image_decode(self, text) -> Image:
         """
         Decodes base64 encoded image to QImage
         """
@@ -218,32 +207,28 @@ class Neptune_Thumbnail:
         text_bytes = text.encode('ascii')
         decode_data = base64.b64decode(text_bytes)
         image_stream = BytesIO(decode_data)
-        img: QImage = QImage.fromData(image_stream.getvalue())
+        img = Image.open(image_stream).convert('RGBA')
 
         self.img_type_detected = 'PNG'
-        if img.format() != QImage.Format.Format_ARGB32:
-            self.img_type_detected = 'JPG'
-            img = img.convertToFormat(QImage.Format.Format_ARGB32)
 
         return img
 
 
-    def image_resize(self, img: QImage, width, height) -> QImage:
+    def image_resize(self, img: Image, size) -> Image:
         """
         Resize image
         """
         if img is None:
             raise Exception('No image')
 
-        img_size = img.size()
-        if img_size.width() == width and img_size.height() == height:
-            return QImage(img);
+        if img.width == size:
+            return Image(img);
 
-        self.log_debug(f'Scaling image to {width}x{height}')
-        return img.scaled(width, height, Qt.AspectRatioMode.KeepAspectRatio)
+        self.log_debug(f'Scaling image to {size}x{size}')
+        return ImageOps.scale(img, size/img.width)
 
 
-    def image_modify(self, img: QImage, light_theme: bool=False) -> QImage:
+    def image_modify(self, img: Image, light_theme: bool=False) -> Image:
         """
         Add texts to image
         """
@@ -252,53 +237,53 @@ class Neptune_Thumbnail:
 
         self.log_debug('Adding texts to image')
 
-        img_size = img.size()
-        font_size = int(img_size.height() / 14);
+        img_copy = img.copy()
 
-        rect_top = QRect(0, 0, img_size.width(), int(img_size.height() / 2) - 1)
-        rect_bottom = QRect(0, int(img_size.height() / 2), img_size.width(), int(img_size.height() / 2))
+        draw = ImageDraw.Draw(img_copy)
 
-        font = QFont('Arial', font_size)
-        font.setStyleHint(QFont.StyleHint.AnyStyle, QFont.StyleStrategy.ForceOutline)
+        font_size = int(img.height / 14);
+
+
+        draw.font = ImageFont.truetype("Helvetica", font_size)
+        draw.fontmode = "L"
 
         bgcolor = None
         if light_theme:
-            color = QColor(Qt.GlobalColor.black)
-            #bgcolor = QColor(Qt.GlobalColor.white)
+            color = (0, 0, 0, 255)
+            bgcolor = (255, 255, 255, 255)
         else:
-            color = QColor(Qt.GlobalColor.white)
-            #bgcolor = QColor(Qt.GlobalColor.black)
+            color = (255, 255, 255, 255)
+            bgcolor = (0, 0, 0, 128)
 
-        painter = QPainter()
-        painter.begin(img)
+        rect_top = [0, 0, img.width, font_size]
+        rect_bottom = [0, img.height-font_size, img.width, img.height]
+        self.log_debug(rect_bottom)
 
-        painter.setFont(font)
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+        draw.rectangle(rect_top, fill=bgcolor, width=0)
+        draw.rectangle(rect_bottom, fill=bgcolor, width=0)
+
 
         if self.print_duration_formatted is not None:
-            draw_text(painter, rect_top, self.print_duration_formatted, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop, color, bgcolor)
-
+            draw.text((rect_top[0], rect_top[1]), self.print_duration_formatted, fill=color)
         if self.max_height_formatted is not None:
-            draw_text(painter, rect_top, self.max_height_formatted, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignTop, color, bgcolor)
-
+            length = draw.textlength(self.max_height_formatted)
+            draw.text((rect_top[2]-length, rect_top[1]), self.max_height_formatted, fill=color)
         if self.filament_used_weight_formatted is not None:
-            draw_text(painter, rect_bottom, self.filament_used_weight_formatted, Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom, color, bgcolor)
-
+            draw.text((rect_bottom[0], rect_bottom[1]), self.filament_used_weight_formatted, fill=color)
         if self.filament_used_length_formatted is not None:
-            draw_text(painter, rect_bottom, self.filament_used_length_formatted, Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignBottom, color, bgcolor)
-
-        painter.end()
+            length = draw.textlength(self.filament_used_length_formatted)
+            draw.text((rect_bottom[2]-length, rect_bottom[1]), self.filament_used_length_formatted, fill=color)
 
         if self.debug:
             img_type = self.img_type
             if img_type is None:
                 img_type = 'PNG'
-            img.save(path.join(script_dir, 'img-' + str(img_size.width()) + 'x' + str(img_size.height()) + '.' + img_type.lower()))
+            img_copy.save(path.join(script_dir, 'img-' + str(img.width) + 'x' + str(img.height) + '.' + img_type.lower()))
 
-        return img
+        return img_copy
 
 
-    def image_encode(self, img: QImage, prefix) -> str:
+    def image_encode(self, img: Image, prefix) -> str:
         """
         Encode image for old printers
         """
@@ -307,9 +292,8 @@ class Neptune_Thumbnail:
 
         self.log_debug(f'Encoding image for old printers ({prefix})')
         result = ''
-        img_size = img.size()
-        width = img_size.width()
-        height = img_size.height()
+        width = img.width
+        height = img.height
         result += prefix
         datasize = 0
         for i in range(height):
@@ -341,7 +325,7 @@ class Neptune_Thumbnail:
         return result
 
 
-    def image_encode_new(self, img: QImage, prefix) -> str:
+    def image_encode_new(self, img: Image, prefix) -> str:
         """
         Encode image for new printers
         """
@@ -351,17 +335,22 @@ class Neptune_Thumbnail:
         self.log_debug(f'Encoding image for new printers ({prefix})')
 
         result   = ''
-        img_size = img.size()
-        width    = img_size.width()
-        height   = img_size.height()
-        color16  = array('H')
+        width    = img.width
+        height   = img.height
+        background = Image.new('RGBA', img.size, (46,51,72))
+        alpha_composite = Image.alpha_composite(background, img)
+        b_image = alpha_composite.resize((width, height))
+        pixels = b_image.load()
+        img_size = (width, height)
+        color16 = array('H')
+
         try:
             for i in range(height):
                 for j in range(width):
-                    pixel_color = img.pixelColor(j, i)
-                    r = pixel_color.red() >> 3
-                    g = pixel_color.green() >> 2
-                    b = pixel_color.blue() >> 3
+                    pixel_color = pixels[j, i]
+                    r = pixel_color[0] >> 3
+                    g = pixel_color[1] >> 2
+                    b = pixel_color[2] >> 3
                     rgb = (r << 11) | (g << 5) | b
                     color16.append(rgb)
 
@@ -372,30 +361,52 @@ class Neptune_Thumbnail:
             if encoded_size <= 0:
                 raise Exception(f'Nothing encoded')
 
-            prefix_len        = len(prefix)
-            max_line_len      = 1024
-            max_line_data_len = max_line_len - prefix_len - 1
 
-            data              = buffer[:encoded_size]
-            data_len          = len(data)
-            lines_count       = int(data_len / max_line_data_len)
-            append_len        = max_line_data_len - 3 - int(data_len % max_line_data_len)
+            data0 = str(buffer).replace('\\x00', '')
+            data1 = data0[2:len(data0) - 2]
+            each_max = 1024 - 8 - 1
+            max_line = int(len(data1) / each_max)
+            append_len = each_max - 3 - int(len(data1) % each_max) + 10
+            j = 0
+            for i in range(len(buffer)):
+                if buffer[i] != 0:
+                    if j == max_line * each_max:
+                        result += '\r;' + prefix + chr(buffer[i])
+                    elif j == 0:
+                        result += prefix + chr(buffer[i])
+                    elif j % each_max == 0:
+                        result += '\r' + prefix + chr(buffer[i])
+                    else:
+                        result += chr(buffer[i])
+                    j += 1
+            result += '\r;'
+            for m in range(append_len):
+                result += '0'
 
-            #logger.debug(f'image_encode_new: encoded_size={encoded_size} data_len={data_len} lines_count={lines_count} append_len={append_len}')
-            #logger.debug(f'buffer={str(buffer)}')
-            #logger.debug(f'  data={str(data)}')
+            # prefix_len        = len(prefix)
+            # max_line_len      = 1024
+            # max_line_data_len = max_line_len - prefix_len - 1
 
-            for i in range(data_len):
-                if i % max_line_data_len == 0:
-                    if i > 0:
-                        result += '\r'
-                        if i == lines_count * max_line_data_len:
-                            # last line should be ';;gimage:', instead of ';gimage:'
-                            result += ';'
-                    result += prefix
-                result += chr(data[i])
-
-            result += '\r;' + ('0' * append_len)
+            # data              = buffer[:encoded_size]
+            # data_len          = len(data)
+            # lines_count       = int(data_len / max_line_data_len)
+            # append_len        = max_line_data_len - 3 - int(data_len % max_line_data_len)
+            #
+            # #logger.debug(f'image_encode_new: encoded_size={encoded_size} data_len={data_len} lines_count={lines_count} append_len={append_len}')
+            # #logger.debug(f'buffer={str(buffer)}')
+            # #logger.debug(f'  data={str(data)}')
+            #
+            # for i in range(data_len):
+            #     if i % max_line_data_len == 0:
+            #         if i > 0:
+            #             result += '\r'
+            #             if i == lines_count * max_line_data_len:
+            #                 # last line should be ';;gimage:', instead of ';gimage:'
+            #                 result += ';'
+            #         result += prefix
+            #     result += chr(data[i])
+            #
+            # result += '\r;' + ('0' * append_len)
 
         except Exception:
             logger.exception('Failed to encode new thumbnail')
@@ -403,21 +414,19 @@ class Neptune_Thumbnail:
         return result + '\r'
 
 
-    def image_encode_klipper(self, img: QImage, img_type: str, base64_block_len: int) -> str:
+    def image_encode_klipper(self, img: Image, img_type: str, base64_block_len: int) -> str:
         """
         Generate image in original Klipper format (base64 with prefix & suffix)
         """
         result: str = '\n'
-        byte_array: QByteArray = QByteArray()
-        byte_buffer: QBuffer = QBuffer(byte_array)
-        byte_buffer.open(QIODeviceBase.OpenModeFlag.WriteOnly)
+        byte_buffer = BytesIO()
         img.save(byte_buffer, img_type)
-        base64: str = str(byte_array.toBase64().data(), "UTF-8")
-        base64_len: int = len(base64)
-        result += f'; thumbnail begin {img.width()}x{img.height()} {base64_len}\n'
+        base64_str: str = base64.b64encode(byte_buffer.getvalue()).decode('ascii')
+        base64_len: int = len(base64_str)
+        result += f'; thumbnail begin {img.width}x{img.height} {base64_len}\n'
         pos: int = 0
         while pos < base64_len:
-            result += f'; {base64[pos:pos+base64_block_len]}\n'
+            result += f'; {base64_str[pos:pos+base64_block_len]}\n'
             pos += base64_block_len
         result += f'; thumbnail end\n\n'
         return result
@@ -438,25 +447,26 @@ class Neptune_Thumbnail:
         self.log_debug('Modifying g-code file')
 
         img = self.image_decode(self.img_encoded)
-        img_200x200 = self.image_modify(self.image_resize(img, 200, 200))
+        img_200x200 = self.image_modify(self.image_resize(img, 200))
         if self.update_original_image:
-            img_klipper = self.image_encode_klipper(self.image_modify(QImage(img), self.original_image_light_theme), self.img_type_detected, self.img_base64_block_len)
+            img_klipper = self.image_encode_klipper(self.image_modify(img, self.original_image_light_theme), self.img_type_detected, self.img_base64_block_len)
 
         header = ''
 
         # Adding image at the very beginning as some reports that comments before image breaks it on some neptune printers
         if self.run_old_printer:
-            header += self.image_encode(self.image_modify(self.image_resize(img, 100, 100)), ';simage:')
+            header += self.image_encode(self.image_modify(self.image_resize(img, 100)), ';simage:')
             header += self.image_encode(img_200x200, ';gimage:')
         else:
             header += self.image_encode_new(img_200x200, ';gimage:')
-            header += self.image_encode_new(self.image_modify(self.image_resize(img, 160, 160)), ';simage:')
+            header += self.image_encode_new(self.image_modify(self.image_resize(img, 160)), ';simage:')
 
-        header += '\n\n; Thumbnail Generated by ElegooNeptuneThumbnailPrusaMod\n'
+        header += ' \n\n; Thumbnail Generated by ElegooNeptuneThumbnailPrusaMod\n'
         # seeing if this works for N4 printer thanks to Molodos: https://github.com/Molodos/ElegooNeptuneThumbnails-Prusa
         header += '; Just mentioning Cura_SteamEngine X.X to trick printer into thinking this is Cura\n\n'
 
         header += self.header.replace('PrusaSlicer', self.prusa_mask).replace('OrcaSlicer', self.orca_mask)
+        header += '\n\n'
 
         output_file = self.input_file + '.output'
         with open(self.input_file, 'r', encoding='utf8') as input, open(output_file, 'w', encoding='utf8') as output:
@@ -526,7 +536,7 @@ if __name__ == '__main__':
         )
         parser.add_argument(
             '--update_original_image',
-            default=False,
+            default=True,
             action='store_true',
             help='Inject additional information into original image',
         )
